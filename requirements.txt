@@ -1,0 +1,51 @@
+# ==============================================================================
+# Multi-Agent Trip Planner with MCP (Model Context Protocol) - Requirements
+# ==============================================================================
+
+# --- Multi-Agent Orchestration & Core Framework ---
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-openai>=0.2.0
+langchain-anthropic>=0.2.0
+
+# --- Model Context Protocol (MCP) ---
+# Official MCP Python SDK for running MCP clients and servers
+mcp>=1.2.0
+# LangChain integration adapter for connecting LangGraph agents to MCP servers/tools
+langchain-mcp-adapters>=0.1.0
+# FastMCP framework for building lightweight MCP servers/tools
+fastmcp>=2.0.0
+
+# --- State Management, Schema & Validation ---
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+
+# --- Travel Tools, Search & Geolocation ---
+# Search tools for destinations, attractions, hotels, and dining
+tavily-python>=0.5.0
+duckduckgo-search>=6.0.0
+# Geocoding and distance calculation for itineraries
+geopy>=2.4.0
+
+# --- Networking & HTTP APIs (Weather, Flights, Booking APIs) ---
+httpx>=0.27.0
+requests>=2.31.0
+anyio>=4.0.0
+
+# --- Environment & Configuration ---
+python-dotenv>=1.0.0
+
+# --- Interactive Web Interface (Optional / Recommended) ---
+streamlit>=1.35.0
+
+# --- Database & Persistence (PostgreSQL) ---
+# Psycopg 3 with pre-built binary and connection pooling support
+psycopg[binary,pool]>=3.1.0
+langgraph-checkpoint-postgres>=2.0.0
+
+# --- Testing & Quality Assurance ---
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
