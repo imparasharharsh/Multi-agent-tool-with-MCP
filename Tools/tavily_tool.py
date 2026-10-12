@@ -38,9 +38,9 @@ def tavily_search(query: str, max_results: int = 5) -> str:
             formatted = [f"Search results for '{query}':\n"]
             for idx, item in enumerate(results, 1):
                 title = item.get("title", "No Title")
-                content = item.get("content", "")
-                url = item.get("url", "")
-                formatted.append(f"{idx}. {title}\n   {content}\n   Source: {url}\n")
+                content = item.get("content", "").strip()
+                snippet = (content[:250] + "...") if len(content) > 250 else content
+                formatted.append(f"{idx}. {title}\n   {snippet}\n")
             return "\n".join(formatted)
         except Exception as e:
             return f"Tavily API search error: {e}. Falling back to default search."

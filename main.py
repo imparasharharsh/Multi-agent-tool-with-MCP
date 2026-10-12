@@ -55,8 +55,8 @@ def get_groq_llm(model: Optional[str] = None) -> ChatGroq:
     if not api_key:
         raise ValueError("Groq API key not found. Please set 'Groq_API_Key' in your .env file.")
 
-    # Default to available Groq model
-    model_name = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+    # Default to available Groq model (gpt-oss-20b is fast with generous rate limits)
+    model_name = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
     return ChatGroq(
         api_key=api_key,
         model=model_name,
@@ -69,7 +69,7 @@ def execute_agent_with_tools(
     user_prompt: str,
     tools: List[Any],
     model: Optional[ChatGroq] = None,
-    max_steps: int = 4,
+    max_steps: int = 3,
 ) -> str:
     """
     Executes an autonomous agent loop with bound tools using Groq.
@@ -116,11 +116,16 @@ def execute_agent_with_tools(
             else:
                 tool_result = f"Tool '{tool_name}' not recognized."
 
+            # Truncate large tool outputs to protect token budget
+            tool_result_str = str(tool_result)
+            if len(tool_result_str) > 1200:
+                tool_result_str = tool_result_str[:1200] + "... [truncated]"
+
             messages.append(
                 ToolMessage(
                     tool_call_id=call_id,
                     name=tool_name,
-                    content=str(tool_result),
+                    content=tool_result_str,
                 )
             )
 
