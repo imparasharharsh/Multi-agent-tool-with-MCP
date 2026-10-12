@@ -2,11 +2,14 @@
 Multi-Agent Trip Planner Backend using LangGraph, Groq LLM, and MCP Tools.
 
 Architecture:
-- State: TripPlannerState tracks user request, flight data, hotel data, itinerary, and messages.
+- Intent Router: Analyzes user request to determine if the query is:
+    1. 'flight_only': Routes ONLY to Flight Agent -> END
+    2. 'hotel_only': Routes ONLY to Hotel Agent -> END
+    3. 'full_trip': Routes through Flight Agent -> Hotel Agent -> Itinerary Agent -> END
+- State: TripPlannerState tracks intent, flight data, hotel data, itinerary, and messages.
 - Agent 1: Flight Agent (uses Tools.flight_tool with AviationStack API)
 - Agent 2: Hotel Agent (uses Tools.tavily_tool for lodging and accommodations)
 - Agent 3: Itinerary Agent (uses Tools.tavily_tool to compile day-by-day schedule with flights & hotels)
-- Orchestration: Sequential StateGraph coordinating the 3 specialized agents.
 """
 
 import os
@@ -35,6 +38,7 @@ class TripPlannerState(TypedDict):
     """Shared state across the multi-agent trip planning graph."""
     messages: Annotated[List[BaseMessage], add_messages]
     user_request: str
+    intent: Optional[str]
     flight_data: Optional[str]
     hotel_data: Optional[str]
     itinerary_data: Optional[str]
@@ -139,6 +143,22 @@ def execute_agent_with_tools(
     if final_resp.content:
         return str(final_resp.content)
 
+    # Fail-safe synthesis: if tool-bound call generated another tool call instead of text,
+    # synthesize directly from collected tool observations using a clean prompt
+    tool_observations = [str(msg.content) for msg in messages if isinstance(msg, ToolMessage)]
+    if tool_observations:
+        synthesis_messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(
+                content=f"Original Request: {user_prompt}\n\n"
+                f"Collected Research Findings:\n" + "\n\n".join(tool_observations) + "\n\n"
+                f"Please provide your complete, detailed recommendations and analysis now."
+            ),
+        ]
+        synth_resp = llm.invoke(synthesis_messages)
+        if synth_resp.content:
+            return str(synth_resp.content)
+
     # Fallback to last available text in message history
     for msg in reversed(messages):
         if isinstance(msg, AIMessage) and msg.content:
@@ -147,8 +167,70 @@ def execute_agent_with_tools(
     return "Completed analysis."
 
 
+
 # ==============================================================================
-# 3. Agent 1: Flight Agent (AviationStack Tool)
+# 3. Intent Router Node
+# ==============================================================================
+
+def classify_intent(user_request: str) -> str:
+    """Classifies user request into 'flight_only', 'hotel_only', or 'full_trip'."""
+    req_lower = user_request.lower()
+
+    # Keywords indicating a complete vacation/itinerary/trip plan
+    has_plan = any(k in req_lower for k in [
+        "itinerary", "itenary", "plan a trip", "trip plan", "plan my trip",
+        "vacation", "holiday", "things to do", "sightseeing", "activities",
+        "schedule", "day 1", "tour"
+    ])
+    has_flight = any(k in req_lower for k in ["flight", "flights", "airline", "airfare", "fly", "flying"])
+    has_hotel = any(k in req_lower for k in ["hotel", "hotels", "stay", "resort", "resorts", "lodging", "hostel", "accommodation"])
+
+    # Explicit single-domain queries
+    if has_plan:
+        return "full_trip"
+    if has_hotel and not has_flight:
+        return "hotel_only"
+    if has_flight and not has_hotel:
+        return "flight_only"
+
+    # Default to full trip if both or general query
+    return "full_trip"
+
+
+def router_node(state: TripPlannerState) -> Dict[str, Any]:
+    """Identifies the traveler's goal and routes accordingly."""
+    user_req = state.get("user_request", "")
+    intent = classify_intent(user_req)
+    print(f"\n🧭 [Intent Router] Detected Intent: '{intent}' for request: '{user_req}'")
+    return {"intent": intent}
+
+
+def route_from_router(state: TripPlannerState) -> str:
+    """Routes to the appropriate starting agent based on intent."""
+    intent = state.get("intent", "full_trip")
+    if intent == "hotel_only":
+        return "hotel_agent"
+    return "flight_agent"
+
+
+def route_from_flight(state: TripPlannerState) -> str:
+    """Routes after flight agent: terminates if flight_only, else proceeds to hotel."""
+    intent = state.get("intent", "full_trip")
+    if intent == "flight_only":
+        return "__end__"
+    return "hotel_agent"
+
+
+def route_from_hotel(state: TripPlannerState) -> str:
+    """Routes after hotel agent: terminates if hotel_only, else proceeds to itinerary."""
+    intent = state.get("intent", "full_trip")
+    if intent == "hotel_only":
+        return "__end__"
+    return "itinerary_agent"
+
+
+# ==============================================================================
+# 4. Agent 1: Flight Agent (AviationStack Tool)
 # ==============================================================================
 
 FLIGHT_AGENT_PROMPT = """You are an expert Flight Logistics Specialist Agent for a trip planning system.
@@ -156,7 +238,7 @@ Your job:
 1. Identify the traveler's departure origin, destination, and requested dates from their trip request.
 2. ALWAYS use the `search_flights` tool to find available flight options.
 3. If specific flight numbers are found, you may use `get_flight_details` to verify baggage/gate information.
-4. Provide a structured summary of the best 2-3 flight options including:
+4. Provide a structured summary of the best flight options including:
    - Airline & Flight Number
    - Departure and Arrival Times & Terminals
    - Stops and Any Delays
@@ -166,6 +248,7 @@ Your job:
 def flight_agent_node(state: TripPlannerState) -> Dict[str, Any]:
     """Agent 1: Researches flights using the AviationStack flight tool."""
     user_req = state.get("user_request", "")
+    intent = state.get("intent", "full_trip")
     print("\n🛫 [Flight Agent] Researching flight options...")
 
     prompt = f"Analyze the traveler's trip request and find the best flight options:\n\"{user_req}\""
@@ -175,14 +258,20 @@ def flight_agent_node(state: TripPlannerState) -> Dict[str, Any]:
         tools=[search_flights, get_flight_details],
     )
 
-    return {
+    updates: Dict[str, Any] = {
         "flight_data": flight_summary,
         "messages": [AIMessage(content=f"### Flight Options\n{flight_summary}")],
     }
 
+    # If the user only asked for flights, this is the final output
+    if intent == "flight_only":
+        updates["final_plan"] = flight_summary
+
+    return updates
+
 
 # ==============================================================================
-# 4. Agent 2: Hotel Agent (Tavily Search Tool)
+# 5. Agent 2: Hotel Agent (Tavily Search Tool)
 # ==============================================================================
 
 HOTEL_AGENT_PROMPT = """You are a Luxury & Boutique Hotel Concierge Specialist Agent.
@@ -200,6 +289,7 @@ def hotel_agent_node(state: TripPlannerState) -> Dict[str, Any]:
     """Agent 2: Researches hotel and lodging options using Tavily web search."""
     user_req = state.get("user_request", "")
     flight_data = state.get("flight_data", "")
+    intent = state.get("intent", "full_trip")
     print("\n🏨 [Hotel Agent] Researching hotel options...")
 
     prompt = (
@@ -214,14 +304,20 @@ def hotel_agent_node(state: TripPlannerState) -> Dict[str, Any]:
         tools=[tavily_search, search_destination_info],
     )
 
-    return {
+    updates: Dict[str, Any] = {
         "hotel_data": hotel_summary,
         "messages": [AIMessage(content=f"### Hotel Recommendations\n{hotel_summary}")],
     }
 
+    # If the user only asked for hotels, this is the final output
+    if intent == "hotel_only":
+        updates["final_plan"] = hotel_summary
+
+    return updates
+
 
 # ==============================================================================
-# 5. Agent 3: Itinerary Agent (Tavily Search Tool + Synthesis)
+# 6. Agent 3: Itinerary Agent (Tavily Search Tool + Synthesis)
 # ==============================================================================
 
 ITINERARY_AGENT_PROMPT = """You are a Master Travel Planner and Itinerary Architect.
@@ -264,7 +360,7 @@ def itinerary_agent_node(state: TripPlannerState) -> Dict[str, Any]:
 
 
 # ==============================================================================
-# 6. LangGraph StateGraph Construction
+# 7. LangGraph StateGraph Construction
 # ==============================================================================
 
 def build_trip_planner_graph() -> StateGraph:
@@ -272,14 +368,45 @@ def build_trip_planner_graph() -> StateGraph:
     builder = StateGraph(TripPlannerState)
 
     # Add agent nodes
+    builder.add_node("router", router_node)
     builder.add_node("flight_agent", flight_agent_node)
     builder.add_node("hotel_agent", hotel_agent_node)
     builder.add_node("itinerary_agent", itinerary_agent_node)
 
-    # Define linear execution workflow: START -> Flight -> Hotel -> Itinerary -> END
-    builder.add_edge(START, "flight_agent")
-    builder.add_edge("flight_agent", "hotel_agent")
-    builder.add_edge("hotel_agent", "itinerary_agent")
+    # Start with intent classification
+    builder.add_edge(START, "router")
+
+    # Conditional routing from router
+    builder.add_conditional_edges(
+        "router",
+        route_from_router,
+        {
+            "flight_agent": "flight_agent",
+            "hotel_agent": "hotel_agent",
+        },
+    )
+
+    # Conditional routing from flight_agent
+    builder.add_conditional_edges(
+        "flight_agent",
+        route_from_flight,
+        {
+            "hotel_agent": "hotel_agent",
+            "__end__": END,
+        },
+    )
+
+    # Conditional routing from hotel_agent
+    builder.add_conditional_edges(
+        "hotel_agent",
+        route_from_hotel,
+        {
+            "itinerary_agent": "itinerary_agent",
+            "__end__": END,
+        },
+    )
+
+    # Itinerary agent terminates the full trip workflow
     builder.add_edge("itinerary_agent", END)
 
     return builder.compile()
@@ -290,7 +417,7 @@ trip_planner_app = build_trip_planner_graph()
 
 
 # ==============================================================================
-# 7. Helper Function for Backend & API Calls
+# 8. Helper Function for Backend & API Calls
 # ==============================================================================
 
 def plan_trip(user_request: str) -> Dict[str, Any]:
@@ -306,6 +433,7 @@ def plan_trip(user_request: str) -> Dict[str, Any]:
     initial_state: TripPlannerState = {
         "messages": [HumanMessage(content=user_request)],
         "user_request": user_request,
+        "intent": None,
         "flight_data": None,
         "hotel_data": None,
         "itinerary_data": None,
@@ -317,11 +445,12 @@ def plan_trip(user_request: str) -> Dict[str, Any]:
 
 
 # ==============================================================================
-# 8. Main CLI Runner
+# 9. Main CLI Runner
 # ==============================================================================
 
 if __name__ == "__main__":
-    sample_query = "Plan a 3-day trip to Udaipur from Delhi on 8th of Dec"
+    # Test sample: hotel only request
+    sample_query = "Give me 3-day hotel stay in Bengaluru from 15th of Dec to 17th of Dec"
     print("=" * 70)
     print("🌟 Multi-Agent Trip Planner Backend Initialized")
     print(f"📌 Query: '{sample_query}'")
@@ -330,6 +459,6 @@ if __name__ == "__main__":
     result = plan_trip(sample_query)
 
     print("\n" + "=" * 70)
-    print("🎉 FINAL MASTER TRIP PLAN:")
+    print("🎉 FINAL RESULT:")
     print("=" * 70)
     print(result.get("final_plan", "No plan generated."))
