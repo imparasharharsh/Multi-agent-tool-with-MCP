@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Multi-Agent Trip Planner | Flight, Hotel & Itinerary Intelligence</title>
+  <meta name="description" content="AI multi-agent trip planner powered by LangGraph, Groq LLM, AviationStack, and Tavily. Plan flights, hotels, and custom travel itineraries dynamically.">
+  
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <main class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="badge">
+        <span class="badge-dot"></span>
+        Multi-Agent System &bull; LangGraph &bull; Groq
+      </div>
+      <h1>AI Multi-Agent Trip Planner</h1>
+      <p class="subtitle">Autonomous travel intelligence powered by specialized agents for flights, boutique stays, and curated itineraries.</p>
+    </header>
+
+    <!-- Search Input Card -->
+    <section class="search-card">
+      <form id="trip-form">
+        <div class="input-group">
+          <input 
+            type="text" 
+            id="query-input" 
+            class="search-input" 
+            placeholder="e.g., Plan a 3-day trip to Udaipur from Delhi on 8th of Dec..." 
+            required 
+            autocomplete="off"
+          />
+          <button type="submit" id="submit-btn" class="btn-primary">
+            <span>Generate Plan</span>
+            <span>➔</span>
+          </button>
+        </div>
+      </form>
+
+      <!-- Quick Suggestion Chips -->
+      <div class="quick-chips">
+        <span class="chip-label">Try asking:</span>
+        <button type="button" class="chip" data-query="Plan a 3-day trip to Udaipur from Delhi on 8th of Dec">
+          🗺️ Full Trip: Udaipur from Delhi
+        </button>
+        <button type="button" class="chip" data-query="Give me 3-day hotel stay in Bengaluru from 15th of Dec to 17th of Dec">
+          🏨 Hotels Only: 3-day Bengaluru Stay
+        </button>
+        <button type="button" class="chip" data-query="Find flights from Delhi to Udaipur on 15th Dec">
+          ✈️ Flights Only: Delhi to Udaipur
+        </button>
+      </div>
+    </section>
+
+    <!-- Agent Pipeline Flow Indicator -->
+    <section class="agent-flow" aria-label="Agent Execution Pipeline">
+      <div class="flow-step" id="step-router">
+        <span class="step-icon">🧭</span>
+        <div class="step-info">
+          <h4>Intent Router</h4>
+          <p>Classifies query goal</p>
+        </div>
+      </div>
+      <div class="flow-step" id="step-flight">
+        <span class="step-icon">🛫</span>
+        <div class="step-info">
+          <h4>Flight Agent</h4>
+          <p>AviationStack telemetry</p>
+        </div>
+      </div>
+      <div class="flow-step" id="step-hotel">
+        <span class="step-icon">🏨</span>
+        <div class="step-info">
+          <h4>Hotel Agent</h4>
+          <p>Tavily boutique research</p>
+        </div>
+      </div>
+      <div class="flow-step" id="step-itinerary">
+        <span class="step-icon">🗺️</span>
+        <div class="step-info">
+          <h4>Itinerary Agent</h4>
+          <p>Master synthesis</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Loading Animation Box -->
+    <section id="loading-box" class="loading-box" role="status" aria-live="polite">
+      <div class="spinner"></div>
+      <div class="loading-text">Agents are coordinating your travel plan...</div>
+      <p class="loading-sub">Fetching live flight schedules, checking hotel ratings, and compiling recommendations.</p>
+    </section>
+
+    <!-- Results Display Card -->
+    <article id="results-card" class="results-card">
+      <div class="results-header">
+        <div id="intent-pill" class="intent-pill">🗺️ Master Itinerary</div>
+        <button type="button" id="copy-btn" class="btn-copy">
+          <span>📋 Copy Plan</span>
+        </button>
+      </div>
+      <div id="plan-content" class="plan-content">
+        <!-- Rendered Output will appear here -->
+      </div>
+    </article>
+  </main>
+
+  <!-- Client Application Script -->
+  <script src="/static/app.js"></script>
+</body>
+</html>
